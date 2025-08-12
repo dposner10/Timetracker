@@ -132,7 +132,7 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
     }
     if (task == null) {
       task = TaskEntry(name: name);
-      setState(() => _tasks.add(task));
+      setState(() => _tasks.add(task!));
     }
     if (!task.isRunning) {
       _startTask(task);
@@ -994,24 +994,27 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
     }
 
     if (range == ChartRange.day) {
-    final List<_DonutSlice> list = <_DonutSlice>[];
+      // First collect task data
+      final Map<String, Duration> taskData = <String, Duration>{};
       for (final TaskEntry t in _tasks) {
         final Duration value = t.durationIncludingRunning(now);
         if (value > Duration.zero) {
-          list.add(
-            _DonutSlice(
-              label: t.name,
-            value: value,
-            color: Colors.transparent,
-            ),
-          );
+          taskData[t.name] = value;
         }
       }
+      
       // Assign unique colors for the current set
-      final Map<String, Color> cmap = _assignColorsForLabels(list.map((e) => e.label).toList());
-      for (final _DonutSlice s in list) {
-        s.color = cmap[s.label] ?? _colorForTask(s.label);
-      }
+      final Map<String, Color> cmap = _assignColorsForLabels(taskData.keys.toList());
+      
+      // Create slices with correct colors
+      final List<_DonutSlice> list = taskData.entries
+          .map((e) => _DonutSlice(
+                label: e.key,
+                value: e.value,
+                color: cmap[e.key] ?? _colorForTask(e.key),
+              ))
+          .toList();
+      
       list.sort((a, b) => b.value.compareTo(a.value));
       return list;
     }
@@ -1026,13 +1029,14 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
       }
     }
 
+    final Map<String, Color> cmap = _assignColorsForLabels(totals.keys.toList());
     final List<_DonutSlice> list = totals.entries
-        .map((e) => _DonutSlice(label: e.key, value: e.value, color: Colors.transparent))
+        .map((e) => _DonutSlice(
+              label: e.key,
+              value: e.value,
+              color: cmap[e.key] ?? _colorForTask(e.key),
+            ))
         .toList();
-    final Map<String, Color> cmap = _assignColorsForLabels(list.map((e) => e.label).toList());
-    for (final _DonutSlice s in list) {
-      s.color = cmap[s.label] ?? _colorForTask(s.label);
-    }
     list.sort((a, b) => b.value.compareTo(a.value));
     return list;
   }
@@ -1331,7 +1335,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
                     Text(task),
                   ],
                 );
-              }).toList(),
+              }),
               ],
             ),
           ],
