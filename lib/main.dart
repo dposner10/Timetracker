@@ -1118,6 +1118,14 @@ extension _IterableFirstOrNull<T> on Iterable<T> {
   }
 }
 
+class _PieSlice {
+  _PieSlice({required this.label, required this.value, required this.color});
+
+  final String label;
+  final double value;
+  final Color color;
+}
+
 class _DonutSlice {
   _DonutSlice({required this.label, required this.value, required this.color});
 
@@ -1248,11 +1256,24 @@ class StatisticsPage extends StatefulWidget {
 
 enum StatsRange { days7, days30 }
 
-class _StatisticsPageState extends State<StatisticsPage> {
+class _StatisticsPageState extends State<StatisticsPage> with SingleTickerProviderStateMixin {
   StatsRange _range = StatsRange.days7;
+  late TabController _tabController;
 
   DateTime get _now => DateTime.now();
   DateTime _strip(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1265,7 +1286,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
         .map((e) => MapEntry<String, int>(e.key, e.value.fold<int>(0, (p, d) => p + d.inMinutes)))
         .toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final List<String> top = totals.take(5).map((e) => e.key).toList();
+    final List<String> top = totals.take(10).map((e) => e.key).toList();
 
     final List<Duration> dailyTotals = _buildDailyTotals(series, length);
     final bool hasAnyData = dailyTotals.any((d) => d > Duration.zero) || top.isNotEmpty;
@@ -1284,60 +1305,330 @@ class _StatisticsPageState extends State<StatisticsPage> {
           ),
           const SizedBox(width: 8),
         ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Expanded(
-              child: hasAnyData
-                  ? LineChart(_buildLineChartData(series, top, start, length, dailyTotals))
-                  : Center(child: Text('Keine Daten im ausgewählten Zeitraum', style: Theme.of(context).textTheme.bodyLarge)),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: <Widget>[
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Text('Gesamt'),
-                  ],
-                ),
-                ...top.map((task) {
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: widget.colorForTask(task),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(task),
-                  ],
-                );
-              }).toList(),
-              ],
-            ),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const <Widget>[
+            Tab(icon: Icon(Icons.show_chart), text: 'Trends'),
+            Tab(icon: Icon(Icons.bar_chart), text: 'Verteilung'),
+            Tab(icon: Icon(Icons.pie_chart), text: 'Zusammenfassung'),
           ],
         ),
       ),
+      body: hasAnyData
+          ? TabBarView(
+              controller: _tabController,
+              children: <Widget>[
+                _buildTrendsTab(series, top, start, length, dailyTotals),
+                _buildDistributionTab(series, top, start, length),
+                _buildSummaryTab(totals, series, length),
+              ],
+            )
+          : const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.analytics_outlined, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('Keine Daten im ausgewählten Zeitraum', 
+                       style: TextStyle(fontSize: 18, color: Colors.grey)),
+                ],
+              ),
+            ),
     );
+  }
+
+  Widget _buildTrendsTab(
+    Map<String, List<Duration>> series,
+    List<String> top,
+    DateTime start,
+    int length,
+    List<Duration> dailyTotals,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // Summary Cards
+          SizedBox(
+            height: 100,
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: _buildSummaryCard(
+                    'Gesamt Zeit',
+                    _formatDuration(Duration(minutes: dailyTotals.fold<int>(0, (p, d) => p + d.inMinutes))),
+                    Icons.timer,
+                    Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildSummaryCard(
+                    'Durchschnitt/Tag',
+                    _formatDuration(Duration(minutes: dailyTotals.isEmpty ? 0 : dailyTotals.fold<int>(0, (p, d) => p + d.inMinutes) ~/ dailyTotals.length)),
+                    Icons.trending_up,
+                    Theme.of(context).colorScheme.secondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: LineChart(_buildLineChartData(series, top, start, length, dailyTotals)),
+          ),
+          const SizedBox(height: 12),
+          _buildLegend(top, withTotal: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDistributionTab(
+    Map<String, List<Duration>> series,
+    List<String> top,
+    DateTime start,
+    int length,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: <Widget>[
+          Expanded(
+            child: BarChart(_buildBarChartData(series, top, start, length)),
+          ),
+          const SizedBox(height: 12),
+          _buildLegend(top.take(5).toList(), withTotal: false),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryTab(
+    List<MapEntry<String, int>> totals,
+    Map<String, List<Duration>> series,
+    int length,
+  ) {
+    final int totalMinutes = totals.fold<int>(0, (p, e) => p + e.value);
+    final List<_PieSlice> slices = totals.take(8).map((e) => 
+      _PieSlice(
+        label: e.key,
+        value: e.value.toDouble(),
+        color: widget.colorForTask(e.key),
+      ),
+    ).toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: <Widget>[
+          // Top stats cards
+          SizedBox(
+            height: 120,
+            child: GridView.count(
+              crossAxisCount: 2,
+              childAspectRatio: 2.5,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              children: <Widget>[
+                _buildSummaryCard(
+                  'Aktive Tage',
+                  '${_getActiveDays(series)}/${length}',
+                  Icons.calendar_today,
+                  Colors.green,
+                ),
+                _buildSummaryCard(
+                  'Top Kategorie',
+                  totals.isNotEmpty ? totals.first.key : '—',
+                  Icons.star,
+                  Colors.orange,
+                ),
+                _buildSummaryCard(
+                  'Kategorien',
+                  '${totals.length}',
+                  Icons.category,
+                  Colors.purple,
+                ),
+                _buildSummaryCard(
+                  'Gesamt',
+                  _formatDuration(Duration(minutes: totalMinutes)),
+                  Icons.access_time,
+                  Colors.blue,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  flex: 2,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: PieChart(_buildPieChartData(slices)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        'Aufschlüsselung',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: math.min(slices.length, 8),
+                          itemBuilder: (context, index) {
+                            final slice = slices[index];
+                            final percentage = totalMinutes > 0 ? (slice.value / totalMinutes * 100) : 0;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: <Widget>[
+                                  Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: slice.color,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      slice.label,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${percentage.toStringAsFixed(1)}%',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: color,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegend(List<String> tasks, {required bool withTotal}) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      children: <Widget>[
+        if (withTotal)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.secondary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('Gesamt', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ...tasks.map((task) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: widget.colorForTask(task),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(task, style: const TextStyle(fontSize: 12)),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
+  int _getActiveDays(Map<String, List<Duration>> series) {
+    if (series.isEmpty) return 0;
+    final length = series.values.first.length;
+    int activeDays = 0;
+    for (int day = 0; day < length; day++) {
+      bool hasActivity = false;
+      for (final List<Duration> taskDays in series.values) {
+        if (day < taskDays.length && taskDays[day] > Duration.zero) {
+          hasActivity = true;
+          break;
+        }
+      }
+      if (hasActivity) activeDays++;
+    }
+    return activeDays;
   }
 
   Map<String, List<Duration>> _buildDailySeries(DateTime start, DateTime end, int length) {
@@ -1465,6 +1756,119 @@ class _StatisticsPageState extends State<StatisticsPage> {
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
       minY: 0,
+    );
+  }
+
+  BarChartData _buildBarChartData(
+    Map<String, List<Duration>> series,
+    List<String> top,
+    DateTime start,
+    int length,
+  ) {
+    final List<BarChartGroupData> barGroups = <BarChartGroupData>[];
+    final List<FlSpot> spots = <FlSpot>[];
+
+    for (int i = 0; i < length; i++) {
+      final DateTime date = start.add(Duration(days: i));
+      final int totalMinutes = series.values.fold<int>(0, (p, taskList) => p + (i < taskList.length ? taskList[i].inMinutes : 0));
+      spots.add(FlSpot(i.toDouble(), totalMinutes.toDouble()));
+    }
+
+    barGroups.add(
+      BarChartGroupData(
+        x: 0,
+        barRods: <BarChartRodData>[
+          BarChartRodData(
+            toY: spots[0].y,
+            color: Theme.of(context).colorScheme.secondary,
+            width: 10,
+          ),
+        ],
+      ),
+    );
+
+    for (int i = 1; i < spots.length; i++) {
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: <BarChartRodData>[
+            BarChartRodData(
+              toY: spots[i].y,
+              color: Theme.of(context).colorScheme.secondary,
+              width: 10,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return BarChartData(
+      barGroups: barGroups,
+      gridData: const FlGridData(show: true),
+      titlesData: FlTitlesData(
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: (length / 6).ceilToDouble(),
+            getTitlesWidget: (double value, TitleMeta meta) {
+              final int idx = value.toInt();
+              if (idx < 0 || idx >= length) return const SizedBox.shrink();
+              final DateTime d = start.add(Duration(days: idx + 1));
+              return SideTitleWidget(
+                axisSide: meta.axisSide,
+                child: Text('${d.day}.${d.month}'),
+              );
+            },
+          ),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 40,
+            interval: 60,
+            getTitlesWidget: (double value, TitleMeta meta) {
+              return SideTitleWidget(
+                axisSide: meta.axisSide,
+                child: Text('${value.toInt()}m'),
+              );
+            },
+          ),
+        ),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      ),
+      borderData: FlBorderData(
+        show: true,
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      minY: 0,
+    );
+  }
+
+  PieChartData _buildPieChartData(List<_PieSlice> slices) {
+    final List<PieChartSectionData> pieSections = <PieChartSectionData>[];
+    for (final _PieSlice s in slices) {
+      pieSections.add(
+        PieChartSectionData(
+          color: s.color,
+          value: s.value,
+          title: s.label,
+          radius: 50,
+          titleStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+      );
+    }
+    return PieChartData(
+      sections: pieSections,
+      borderData: FlBorderData(show: false),
+      sectionsSpace: 0,
+      centerSpaceRadius: 40,
+      pieTouchData: const PieTouchData(enabled: false),
     );
   }
 }
