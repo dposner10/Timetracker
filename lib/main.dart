@@ -132,9 +132,9 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
     }
     if (task == null) {
       task = TaskEntry(name: name);
-      setState(() => _tasks.add(task));
+      setState(() => _tasks.add(task!));
     }
-    if (!task.isRunning) {
+    if (!task!.isRunning) {
       _startTask(task);
     }
     _saveState();
@@ -1123,7 +1123,7 @@ class _DonutSlice {
 
   final String label;
   final Duration value;
-  final Color color;
+  Color color;
 }
 
 class _DonutChartPainter extends CustomPainter {
@@ -1253,6 +1253,17 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
   DateTime get _now => DateTime.now();
   DateTime _strip(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  String _formatDuration(Duration d) {
+    final int hours = d.inHours;
+    final int minutes = d.inMinutes.remainder(60);
+    final int seconds = d.inSeconds.remainder(60);
+    String two(int n) => n.toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '${two(hours)}:${two(minutes)}:${two(seconds)} h';
+    }
+    return '${two(minutes)}:${two(seconds)} min';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1439,7 +1450,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
               final DateTime d = start.add(Duration(days: idx + 1));
               return SideTitleWidget(
                 axisSide: meta.axisSide,
-                child: Text('${d.day}.${d.month}'),
+                child: Text('$d.day.$d.month'),
               );
             },
           ),
