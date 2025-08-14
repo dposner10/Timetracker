@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'pomodoro_page.dart';
 
 void main() {
   runApp(const TimeTrackerApp());
@@ -297,9 +298,14 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
     return PopScope(
       canPop: !_isFocusMode,
       child: Scaffold(
-      appBar: AppBar(
+              appBar: AppBar(
           title: const Text('Time Tracker'),
           actions: <Widget>[
+            IconButton(
+              tooltip: 'Pomodoro Timer',
+              icon: const Icon(Icons.timer),
+              onPressed: _openPomodoro,
+            ),
             IconButton(
               tooltip: 'Statistiken',
               icon: const Icon(Icons.show_chart_outlined),
@@ -696,6 +702,51 @@ class _TimeTrackerHomePageState extends State<TimeTrackerHomePage> {
         );
       },
     );
+  }
+
+  void _openPomodoro() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PomodoroPage(
+          onTimeLogged: _logTimeFromPomodoro,
+          initialTaskName: _runningTask?.name,
+        ),
+      ),
+    );
+  }
+
+  void _logTimeFromPomodoro(String taskName, Duration duration) {
+    if (taskName.trim().isEmpty || duration <= Duration.zero) return;
+    
+    final DateTime now = DateTime.now();
+    final DateTime sessionStart = now.subtract(duration);
+    
+    setState(() {
+      // Ensure task exists
+      TaskEntry? task;
+      try {
+        task = _tasks.firstWhere((t) => t.name.toLowerCase() == taskName.toLowerCase());
+      } catch (_) {
+        task = null;
+      }
+      if (task == null) {
+        task = TaskEntry(name: taskName);
+        _tasks.add(task);
+      }
+      
+      // Add the duration to accumulated time
+      task.accumulatedDuration += duration;
+      task.archivedToday = false; // Show it in today's list
+      
+      // Create a session record
+      _sessions.add(TaskSession(
+        taskName: taskName,
+        start: sessionStart,
+        end: now,
+      ));
+    });
+    
+    _saveState();
   }
 
   void _openStatistics() {
